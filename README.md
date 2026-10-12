@@ -300,19 +300,6 @@ python test_backend.py
 
 ---
 
-## Roadmap
-
-- [ ] Move database credentials and Flask secret key into environment variables
-- [ ] Add a `requirements.txt` file for repeatable dependency installation
-- [ ] Replace manual smoke checks with automated `pytest` tests
-- [ ] Add role-based decorators for protected routes
-- [ ] Improve reservation overlap detection for fully covering date ranges
-- [ ] Add admin pages for editing cars, customers, offices, and reservation statuses
-- [ ] Add invoice/payment status tracking
-- [ ] Add production deployment documentation
-
----
-
 <div align="center">
 
 **Built as a full-stack database-driven car rental management project.**
