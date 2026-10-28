@@ -1,6 +1,6 @@
 <div align="center">
 
-# CarRental: Full-Stack Car Rental System
+# 🚗 CarRental: Full-Stack Car Rental System
 
 **A Flask and MySQL web application for browsing cars, managing reservations, tracking payments, and generating operational rental reports.**
 
@@ -9,6 +9,12 @@
 [![MySQL](https://img.shields.io/badge/MySQL-4479A1?style=for-the-badge&logo=mysql&logoColor=white)](https://www.mysql.com/)
 [![Bootstrap](https://img.shields.io/badge/Bootstrap-7952B3?style=for-the-badge&logo=bootstrap&logoColor=white)](https://getbootstrap.com/)
 [![bcrypt](https://img.shields.io/badge/bcrypt-Password_Hashing-2E7D32?style=for-the-badge)](https://pypi.org/project/bcrypt/)
+
+### 🚀 Live Application
+
+[![Try the Live Demo](https://img.shields.io/badge/Try_the_Live_Demo-28A745?style=for-the-badge&logo=googlechrome&logoColor=white)](https://youssefmohattia.pythonanywhere.com/)
+
+**[Launch CarRental](https://youssefmohattia.pythonanywhere.com/)**
 
 </div>
 
@@ -40,6 +46,8 @@ The system is built with a simple layered structure:
 - **Business logic and database access** in `backend.py` manage customers, admins, cars, reservations, payments, and reports.
 - **MySQL schema and seed data** are provided through `schema.sql` and `DML.sql`.
 - **Bootstrap templates** provide responsive customer and admin dashboards.
+
+**Live application:** [youssefmohattia.pythonanywhere.com](https://youssefmohattia.pythonanywhere.com/)
 
 ---
 
@@ -140,6 +148,7 @@ The repository also includes an additional ERD export in `erd.jpg`.
 | Frontend | HTML, CSS, Bootstrap, Jinja2 templates |
 | Styling and Icons | Bootstrap, Font Awesome |
 | Testing / Smoke Checks | Python test script in `test_backend.py` |
+| Hosting | PythonAnywhere |
 
 ---
 
@@ -187,7 +196,7 @@ Full-Stack-Car-Rental-System/
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/<your-username>/Full-Stack-Car-Rental-System.git
+git clone https://github.com/YoussefMohAttia/Full-Stack-Car-Rental-System.git
 cd Full-Stack-Car-Rental-System
 ```
 
@@ -236,6 +245,8 @@ self.db = mysql.connector.connect(
 )
 ```
 
+> For non-local deployments, use secure credentials and keep passwords out of the repository.
+
 ### 6. Run the application
 
 ```bash
@@ -248,34 +259,33 @@ Open the app in your browser:
 http://127.0.0.1:5000
 ```
 
-### Sample Admin Credentials
+### Sample Admin Credentials (Local Seed Data)
 
-If you load `DML.sql`, you can use:
+If you load `DML.sql`, the provided local sample accounts are:
 
 | Email | Password |
 |---|---|
 | `admin@example.com` | `adminpass123` |
 | `super@example.com` | `superpass456` |
 
+> These are example credentials from the local seed data, **not verified credentials for the live website**. Do not use these passwords for production accounts.
+
 ---
 
 ## Deployment
 
-This project is ready to deploy from GitHub to Render as a self-contained public demo.
+The application is hosted on **PythonAnywhere** and can be accessed through its public web address:
 
-1. In Render, create a new Blueprint from this GitHub repository.
-2. Render reads `render.yaml`, installs the Python dependencies, generates `SECRET_KEY`, and runs the Flask app with Gunicorn.
-3. The hosted demo uses SQLite and creates its schema and sample offices, cars, and admin accounts automatically on first use.
-4. Generate a public URL from the service once the deployment succeeds.
+**🌐 [Open the Live CarRental Application](https://youssefmohattia.pythonanywhere.com/)**
 
-The deployed demo database is local to the web service and may reset after a redeploy. Local development continues to use MySQL unless `DB_ENGINE=sqlite` is set.
+Visitors can view the deployed application without setting up Python or MySQL locally. The exact production database configuration and deployment procedure are not documented here; the [Getting Started](#getting-started) section describes the local MySQL setup.
 
 ---
 
 ## Application Routes
 
 | Route | Method | Description |
-|---|---:|---|
+|---|---|---|
 | `/` | GET | Landing page and fleet overview |
 | `/customer/register` | GET / POST | Customer registration |
 | `/customer/login` | GET / POST | Customer login |
@@ -314,8 +324,22 @@ python test_backend.py
 
 ---
 
+## Roadmap
+
+Potential future improvements:
+
+- Online payment gateway integration
+- Booking confirmation and reminder emails
+- Expanded filtering and sorting for available cars
+- Improved reporting dashboards and analytics
+- Automated unit and integration test coverage
+
+---
+
 <div align="center">
 
 **Built as a full-stack database-driven car rental management project.**
+
+**[🚗 Try the Live Application](https://youssefmohattia.pythonanywhere.com/)**
 
 </div>
