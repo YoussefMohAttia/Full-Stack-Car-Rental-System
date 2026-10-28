@@ -1,9 +1,10 @@
 from flask import Flask, render_template, request, redirect, url_for, flash, session
 from datetime import datetime
+import os
 from backend import Admin, Customer
 
 app = Flask(__name__)
-app.secret_key = 'your_secret_key'  # Required for session management
+app.secret_key = os.getenv('SECRET_KEY', 'development-only-secret-key')
 
 @app.route('/')
 def index():

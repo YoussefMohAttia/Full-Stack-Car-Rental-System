@@ -1,5 +1,6 @@
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
+import os
 import mysql.connector
 from mysql.connector import Error
 import re
@@ -9,10 +10,11 @@ class CarRentalSystem:
     def __init__(self):
         try:
             self.db = mysql.connector.connect(
-                host="localhost",
-                user="root",
-                password="",  # Add password
-                database="car_rental"
+                host=os.getenv("MYSQLHOST", os.getenv("DB_HOST", "localhost")),
+                port=int(os.getenv("MYSQLPORT", os.getenv("DB_PORT", "3306"))),
+                user=os.getenv("MYSQLUSER", os.getenv("DB_USER", "root")),
+                password=os.getenv("MYSQLPASSWORD", os.getenv("DB_PASSWORD", "")),
+                database=os.getenv("MYSQLDATABASE", os.getenv("DB_NAME", "car_rental")),
             )
             self.cursor = self.db.cursor(dictionary=True)
         except Error as e:
