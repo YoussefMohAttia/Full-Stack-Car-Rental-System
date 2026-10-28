@@ -261,14 +261,14 @@ If you load `DML.sql`, you can use:
 
 ## Deployment
 
-This project is ready to deploy from GitHub to Railway with a MySQL service.
+This project is ready to deploy from GitHub to Render as a self-contained public demo.
 
-1. Create a Railway project from this GitHub repository and add a MySQL service.
-2. In the MySQL service, run `schema.sql`, then `DML.sql` against the database.
-3. Add a `SECRET_KEY` variable to the Flask web service. Railway automatically supplies the `MYSQLHOST`, `MYSQLPORT`, `MYSQLUSER`, `MYSQLPASSWORD`, and `MYSQLDATABASE` variables after you reference the MySQL service variables.
-4. Deploy the web service. Railway uses `railway.toml` to run the Flask app with Gunicorn.
+1. In Render, create a new Blueprint from this GitHub repository.
+2. Render reads `render.yaml`, installs the Python dependencies, generates `SECRET_KEY`, and runs the Flask app with Gunicorn.
+3. The hosted demo uses SQLite and creates its schema and sample offices, cars, and admin accounts automatically on first use.
+4. Generate a public URL from the service once the deployment succeeds.
 
-The database values are read from environment variables in production. Local development continues to use `localhost`, `root`, no password, and the `car_rental` database unless you set the matching variables.
+The deployed demo database is local to the web service and may reset after a redeploy. Local development continues to use MySQL unless `DB_ENGINE=sqlite` is set.
 
 ---
 

@@ -1,14 +1,137 @@
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 import os
+from pathlib import Path
+import sqlite3
 import mysql.connector
 from mysql.connector import Error
 import re
 import bcrypt
 
+
+class SQLiteCursor:
+    """Small compatibility layer for the MySQL-style queries used by this app."""
+
+    def __init__(self, cursor):
+        self.cursor = cursor
+
+    def execute(self, query, params=None):
+        query = query.replace('%s', '?').replace('NOW()', 'CURRENT_TIMESTAMP')
+        query = re.sub(
+            r'DATEDIFF\(([^,]+),\s*([^)]+)\)',
+            r'CAST(julianday(\1) - julianday(\2) AS INTEGER)',
+            query,
+        )
+        self.cursor.execute(query, tuple(params or ()))
+        return self
+
+    def fetchone(self):
+        row = self.cursor.fetchone()
+        return dict(row) if row else None
+
+    def fetchall(self):
+        return [dict(row) for row in self.cursor.fetchall()]
+
+    @property
+    def lastrowid(self):
+        return self.cursor.lastrowid
+
+    def close(self):
+        self.cursor.close()
+
+
+def initialize_sqlite_database(db):
+    db.executescript("""
+        PRAGMA foreign_keys = ON;
+
+        CREATE TABLE IF NOT EXISTS offices (
+            office_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            country TEXT NOT NULL,
+            phone TEXT
+        );
+        CREATE TABLE IF NOT EXISTS cars (
+            plate_id TEXT PRIMARY KEY,
+            model TEXT NOT NULL,
+            year INTEGER NOT NULL,
+            status TEXT NOT NULL DEFAULT 'active',
+            office_id INTEGER NOT NULL,
+            price_per_day REAL NOT NULL,
+            FOREIGN KEY (office_id) REFERENCES offices(office_id) ON DELETE RESTRICT
+        );
+        CREATE TABLE IF NOT EXISTS customers (
+            SSN INTEGER PRIMARY KEY AUTOINCREMENT,
+            fname TEXT NOT NULL,
+            lname TEXT NOT NULL,
+            email TEXT UNIQUE NOT NULL,
+            password BLOB NOT NULL,
+            phone TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS reservations (
+            reservation_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            customer_ssn INTEGER NOT NULL,
+            plate_id TEXT NOT NULL,
+            reservation_date TEXT NOT NULL,
+            pickup_date TEXT NOT NULL,
+            return_date TEXT NOT NULL,
+            actual_return_date TEXT,
+            cancellation_date TEXT,
+            price REAL NOT NULL,
+            status TEXT NOT NULL DEFAULT 'active',
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (customer_ssn) REFERENCES customers(SSN) ON DELETE RESTRICT,
+            FOREIGN KEY (plate_id) REFERENCES cars(plate_id) ON DELETE RESTRICT
+        );
+        CREATE TABLE IF NOT EXISTS admin (
+            admin_ssn INTEGER PRIMARY KEY AUTOINCREMENT,
+            fname TEXT NOT NULL,
+            lname TEXT NOT NULL,
+            email TEXT UNIQUE NOT NULL,
+            password TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS payments (
+            payment_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            reservation_id INTEGER NOT NULL,
+            amount REAL NOT NULL,
+            payment_date TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (reservation_id) REFERENCES reservations(reservation_id) ON DELETE RESTRICT
+        );
+    """)
+
+    db.executemany(
+        "INSERT OR IGNORE INTO offices (office_id, country, phone) VALUES (?, ?, ?)",
+        [(1, 'Egypt', '123-456-7890'), (2, 'Germany', '123-456-7891')],
+    )
+    db.executemany(
+        """INSERT OR IGNORE INTO cars
+        (plate_id, model, year, status, office_id, price_per_day)
+        VALUES (?, ?, ?, ?, ?, ?)""",
+        [
+            ('ABC123', 'Toyota Camry', 2022, 'active', 1, 50.00),
+            ('XYZ789', 'Honda Civic', 2021, 'active', 1, 45.00),
+            ('DEF456', 'Ford Mustang', 2023, 'active', 2, 75.00),
+        ],
+    )
+    db.executemany(
+        "INSERT OR IGNORE INTO admin (email, fname, lname, password) VALUES (?, ?, ?, ?)",
+        [
+            ('admin@example.com', 'Admin', 'User', 'adminpass123'),
+            ('super@example.com', 'Super', 'Admin', 'superpass456'),
+        ],
+    )
+    db.commit()
+
 class CarRentalSystem:
     def __init__(self):
         try:
+            if os.getenv("DB_ENGINE", "mysql").lower() == "sqlite":
+                database_path = Path(os.getenv("SQLITE_DATABASE", "data/car_rental.db"))
+                database_path.parent.mkdir(parents=True, exist_ok=True)
+                self.db = sqlite3.connect(database_path)
+                self.db.row_factory = sqlite3.Row
+                initialize_sqlite_database(self.db)
+                self.cursor = SQLiteCursor(self.db.cursor())
+                return
+
             self.db = mysql.connector.connect(
                 host=os.getenv("MYSQLHOST", os.getenv("DB_HOST", "localhost")),
                 port=int(os.getenv("MYSQLPORT", os.getenv("DB_PORT", "3306"))),
