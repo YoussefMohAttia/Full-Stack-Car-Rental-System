@@ -3,6 +3,7 @@ from typing import Dict, List, Optional, Tuple
 import os
 from pathlib import Path
 import sqlite3
+import hmac
 import mysql.connector
 from mysql.connector import Error
 import re
@@ -22,7 +23,11 @@ class SQLiteCursor:
             r'CAST(julianday(\1) - julianday(\2) AS INTEGER)',
             query,
         )
-        self.cursor.execute(query, tuple(params or ()))
+        normalized_params = tuple(
+            value.isoformat(sep=' ') if isinstance(value, datetime) else value
+            for value in (params or ())
+        )
+        self.cursor.execute(query, normalized_params)
         return self
 
     def fetchone(self):
@@ -140,15 +145,16 @@ class CarRentalSystem:
                 database=os.getenv("MYSQLDATABASE", os.getenv("DB_NAME", "car_rental")),
             )
             self.cursor = self.db.cursor(dictionary=True)
-        except Error as e:
+        except (Error, sqlite3.Error) as e:
             print(f"Error connecting to database: {e}")
             raise
 
-    def create_payment(self, reservation_id: int, amount: float) -> bool:
+    def create_payment(self, reservation_id: int, amount: float, commit: bool = True) -> bool:
         try:
             query = "INSERT INTO payments (reservation_id, amount) VALUES (%s, %s)"
             self.cursor.execute(query, (reservation_id, amount))
-            self.db.commit()
+            if commit:
+                self.db.commit()
             return True
         except Exception as e:
             print(f"Error creating payment: {e}")
@@ -171,22 +177,22 @@ class CarRentalSystem:
             return []
 
     def validate_dates(self, pickup_date: datetime, return_date: datetime) -> bool:
-        return pickup_date < return_date and pickup_date >= datetime.now()
+        return pickup_date < return_date and pickup_date.date() >= datetime.now().date()
 
     def check_car_availability(self, plate_id: str, pickup_date: datetime, 
                              return_date: datetime) -> bool:
         try:
             query = """
             SELECT COUNT(*) as count FROM reservations 
-            WHERE plate_id = %s AND status = 'active'
-            AND ((pickup_date BETWEEN %s AND %s) 
-            OR (return_date BETWEEN %s AND %s))
+            WHERE plate_id = %s
+            AND status IN ('active', 'picked_up')
+            AND pickup_date < %s
+            AND return_date > %s
             """
-            self.cursor.execute(query, (plate_id, pickup_date, return_date, 
-                                      pickup_date, return_date))
+            self.cursor.execute(query, (plate_id, return_date, pickup_date))
             result = self.cursor.fetchone()
             return result['count'] == 0
-        except Error as e:
+        except Exception as e:
             print(f"Error checking availability: {e}")
             return False
 
@@ -280,20 +286,16 @@ class Admin(CarRentalSystem):
 
     def admin_login(self, email: str, password: str) -> Tuple[Optional[Dict], str]:
         try:
-            print(f"Attempting admin login with email: {email}")  # Debug log
-            
-            # Use the correct table name 'admin' and column names
+            # Query by email, then verify the password in Python.
             query = """
-            SELECT admin_ssn, fname, lname, email 
+            SELECT admin_ssn, fname, lname, email, password
             FROM admin 
-            WHERE email = %s AND password = %s
+            WHERE email = %s
             """
-            self.cursor.execute(query, (email, password))
+            self.cursor.execute(query, (email,))
             admin = self.cursor.fetchone()
-            
-            print(f"Query result: {admin}")  # Debug log
-            
-            if admin:
+
+            if admin and self.verify_password(admin['password'], password):
                 return {
                     'id': admin['admin_ssn'],  # Changed from 'id' to 'admin_ssn'
                     'email': admin['email'],
@@ -304,6 +306,12 @@ class Admin(CarRentalSystem):
         except Exception as e:
             print(f"Admin login error: {e}")
             return None, f"Login failed: {str(e)}"
+
+    @staticmethod
+    def verify_password(stored_password, submitted_password: str) -> bool:
+        if isinstance(stored_password, str) and stored_password.startswith('$2'):
+            return bcrypt.checkpw(submitted_password.encode('utf-8'), stored_password.encode('utf-8'))
+        return hmac.compare_digest(str(stored_password), submitted_password)
 
     def validate_admin_input(self, email: str, password: str) -> Tuple[bool, str]:
         # Email validation
@@ -360,7 +368,7 @@ class Admin(CarRentalSystem):
             """
             self.cursor.execute(query)
             return self.cursor.fetchone()
-        except Error as e:
+        except Exception as e:
             print(f"Error getting statistics: {e}")
             return {}
 
@@ -579,7 +587,10 @@ class Customer(CarRentalSystem):
             # Calculate price based on number of days and car's daily rate
             query = "SELECT price_per_day FROM cars WHERE plate_id = %s"
             self.cursor.execute(query, (plate_id,))
-            car_price = self.cursor.fetchone()['price_per_day']
+            car = self.cursor.fetchone()
+            if not car:
+                raise ValueError("Car not found")
+            car_price = car['price_per_day']
             days = (return_date - pickup_date).days
             total_price = car_price * days
 
@@ -593,12 +604,9 @@ class Customer(CarRentalSystem):
             # Get the reservation_id of the newly created reservation
             reservation_id = self.cursor.lastrowid
             
-            # Create initial payment record
-            self.create_payment(reservation_id, total_price)
-
-            # Update car status
-            self.cursor.execute("UPDATE cars SET status = 'rented' WHERE plate_id = %s", 
-                              (plate_id,))
+            # Keep the reservation and payment in the same transaction.
+            if not self.create_payment(reservation_id, total_price, commit=False):
+                raise ValueError("Could not create payment")
             
             self.db.commit()
             return True
@@ -613,8 +621,19 @@ class Customer(CarRentalSystem):
                             min_price: Optional[float] = None,
                             year: Optional[int] = None) -> List[Dict]:
         try:
-            query = "SELECT * FROM cars WHERE status = 'active' "
-            params = []
+            query = """
+            SELECT * FROM cars c
+            WHERE c.status = 'active'
+            AND NOT EXISTS (
+                SELECT 1 FROM reservations r
+                WHERE r.plate_id = c.plate_id
+                AND r.status IN ('active', 'picked_up')
+                AND r.pickup_date <= %s
+                AND r.return_date > %s
+            )
+            """
+            now = datetime.now()
+            params = [now, now]
             
             if office_id:
                 query += "AND office_id = %s "
@@ -678,6 +697,8 @@ class Customer(CarRentalSystem):
             # Calculate any additional charges (e.g., late returns)
             actual_return = datetime.now()
             scheduled_return = reservation['return_date']
+            if isinstance(scheduled_return, str):
+                scheduled_return = datetime.fromisoformat(scheduled_return)
             extra_days = max(0, (actual_return - scheduled_return).days)
             extra_charges = 0
             
@@ -706,14 +727,14 @@ class Customer(CarRentalSystem):
             self.db.rollback()
             return False
 
-    def cancel_reservation(self, reservation_id: int) -> bool:
+    def cancel_reservation(self, reservation_id: int, customer_ssn: int) -> bool:
         try:
             # Verify reservation exists and is active (not picked up or completed)
             query = """
             SELECT * FROM reservations 
-            WHERE reservation_id = %s AND status = 'active'
+            WHERE reservation_id = %s AND customer_ssn = %s AND status = 'active'
             """
-            self.cursor.execute(query, (reservation_id,))
+            self.cursor.execute(query, (reservation_id, customer_ssn))
             reservation = self.cursor.fetchone()
             
             if not reservation:
@@ -725,10 +746,6 @@ class Customer(CarRentalSystem):
                           cancellation_date = NOW()
                       WHERE reservation_id = %s"""
             self.cursor.execute(query, (reservation_id,))
-            
-            # Update car status back to active
-            query = "UPDATE cars SET status = 'active' WHERE plate_id = %s"
-            self.cursor.execute(query, (reservation['plate_id'],))
             
             self.db.commit()
             return True

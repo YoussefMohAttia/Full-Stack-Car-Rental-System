@@ -1,10 +1,56 @@
-from flask import Flask, render_template, request, redirect, url_for, flash, session
+from flask import Flask, abort, render_template, request, redirect, url_for, flash, session
 from datetime import datetime
+from functools import wraps
+import hmac
 import os
+import secrets
 from backend import Admin, Customer
 
 app = Flask(__name__)
 app.secret_key = os.getenv('SECRET_KEY', 'development-only-secret-key')
+app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE='Lax')
+
+
+def csrf_token():
+    if '_csrf_token' not in session:
+        session['_csrf_token'] = secrets.token_urlsafe(32)
+    return session['_csrf_token']
+
+
+@app.context_processor
+def inject_csrf_token():
+    return {'csrf_token': csrf_token(), 'current_year': datetime.now().year}
+
+
+def validate_csrf():
+    submitted_token = request.form.get('csrf_token', '')
+    if not hmac.compare_digest(session.get('_csrf_token', ''), submitted_token):
+        abort(400)
+
+
+def admin_required(view):
+    @wraps(view)
+    def wrapped_view(*args, **kwargs):
+        if not session.get('admin'):
+            return redirect(url_for('admin_login'))
+        return view(*args, **kwargs)
+    return wrapped_view
+
+
+def customer_required(view):
+    @wraps(view)
+    def wrapped_view(*args, **kwargs):
+        if not session.get('customer_ssn'):
+            return redirect(url_for('customer_login'))
+        return view(*args, **kwargs)
+    return wrapped_view
+
+
+@app.template_filter('date_display')
+def date_display(value):
+    if hasattr(value, 'strftime'):
+        return value.strftime('%Y-%m-%d')
+    return str(value)[:10]
 
 @app.route('/')
 def index():
@@ -15,17 +61,15 @@ def index():
 def admin_login():
     if request.method == 'POST':
         try:
+            validate_csrf()
             email = request.form['email']
             password = request.form['password']
-            
-            print(f"Login attempt for admin: {email}")  # Debug log
             
             admin = Admin()
             user, message = admin.admin_login(email, password)
             
-            print(f"Login result: {user}, {message}")  # Debug log
-            
             if user:
+                session.pop('customer_ssn', None)
                 session['admin'] = True
                 session['admin_ssn'] = user['id']  
                 session['admin_name'] = user['name']
@@ -33,8 +77,7 @@ def admin_login():
                 return redirect(url_for('admin_dashboard'))
             else:
                 flash(message, 'danger')  
-        except Exception as e:
-            print(f"Admin login error: {e}")  
+        except Exception:
             flash('An error occurred during login. Please try again.', 'danger')
     
     return render_template('admin/login.html')
@@ -42,20 +85,23 @@ def admin_login():
 @app.route('/admin/logout')
 def admin_logout():
     session.pop('admin', None)
+    session.pop('admin_ssn', None)
+    session.pop('admin_name', None)
     return redirect(url_for('index'))
 
 @app.route('/admin/dashboard')
+@admin_required
 def admin_dashboard():
-    if not session.get('admin'):
-        return redirect(url_for('admin_login'))
     admin = Admin()
     stats = admin.get_car_statistics()
     return render_template('admin/dashboard.html', stats=stats)
 
 @app.route('/admin/cars/add', methods=['GET', 'POST'])
+@admin_required
 def add_car():
     if request.method == 'POST':
         try:
+            validate_csrf()
             year = int(request.form['year'])
             current_year = datetime.now().year
             
@@ -73,6 +119,8 @@ def add_car():
             )
             if result:
                 flash('Car added successfully', 'success')
+            else:
+                flash('Could not add car. Check that the plate ID is unique and the office exists.', 'danger')
             return redirect(url_for('admin_dashboard'))
         except ValueError:
             flash('Invalid year format', 'danger')
@@ -80,10 +128,8 @@ def add_car():
     return render_template('admin/add_car.html')
 
 @app.route('/admin/reports')
+@admin_required
 def view_reports():
-    if not session.get('admin'):
-        return redirect(url_for('admin_login'))
-
     # Get date range and filters from request arguments or use defaults
     default_start_date = datetime.now().replace(day=1).strftime('%Y-%m-%d')
     default_end_date = datetime.now().strftime('%Y-%m-%d')
@@ -94,8 +140,14 @@ def view_reports():
     customer_ssn = request.args.get('customer_ssn', type=int)  # Convert to int if present
 
     # Convert string dates to datetime objects
-    start_date = datetime.strptime(start_date, '%Y-%m-%d')
-    end_date = datetime.strptime(end_date, '%Y-%m-%d')
+    try:
+        start_date = datetime.strptime(start_date, '%Y-%m-%d')
+        end_date = datetime.strptime(end_date, '%Y-%m-%d')
+        if start_date > end_date:
+            raise ValueError
+    except ValueError:
+        flash('Choose a valid date range.', 'danger')
+        return redirect(url_for('view_reports'))
 
     admin = Admin()
     
@@ -129,6 +181,7 @@ def view_reports():
 @app.route('/customer/register', methods=['GET', 'POST'])
 def customer_register():
     if request.method == 'POST':
+        validate_csrf()
         customer = Customer()
         success, message = customer.register_customer(
             fname=request.form['fname'],
@@ -147,6 +200,7 @@ def customer_register():
 def customer_login():
     if request.method == 'POST':
         try:
+            validate_csrf()
             email = request.form['email']
             password = request.form['password']
             
@@ -154,13 +208,15 @@ def customer_login():
             user, message = customer.login(email, password)
             
             if user:
+                session.pop('admin', None)
+                session.pop('admin_ssn', None)
+                session.pop('admin_name', None)
                 session['customer_ssn'] = user['SSN']
                 flash('Login successful', 'success')
                 return redirect(url_for('customer_dashboard'))
             else:
                 flash(message, 'error')
-        except Exception as e:
-            print(f"Login error: {e}")
+        except Exception:
             flash('An error occurred during login. Please try again.', 'error')
     
     return render_template('customer/login.html')
@@ -181,42 +237,44 @@ def search_cars():
     return render_template('customer/search.html', cars=cars)
 
 @app.route('/customer/reserve/<plate_id>', methods=['GET', 'POST'])
+@customer_required
 def reserve_car(plate_id):
-    if not session.get('customer_ssn'):
-        return redirect(url_for('customer_login'))
-        
     if request.method == 'POST':
-        customer = Customer()
-        result = customer.create_reservation(
-            customer_ssn=session['customer_ssn'],
-            plate_id=plate_id,
-            pickup_date=datetime.strptime(request.form['pickup_date'], '%Y-%m-%d'),
-            return_date=datetime.strptime(request.form['return_date'], '%Y-%m-%d')
-        )
+        try:
+            validate_csrf()
+            customer = Customer()
+            result = customer.create_reservation(
+                customer_ssn=session['customer_ssn'],
+                plate_id=plate_id,
+                pickup_date=datetime.strptime(request.form['pickup_date'], '%Y-%m-%d'),
+                return_date=datetime.strptime(request.form['return_date'], '%Y-%m-%d')
+            )
+        except (KeyError, ValueError):
+            flash('Choose valid pickup and return dates.', 'danger')
+            return redirect(url_for('reserve_car', plate_id=plate_id))
         if result:
-            flash('Reservation successful')
+            flash('Reservation successful', 'success')
             return redirect(url_for('customer_dashboard'))
         else:
-            flash('Reservation failed. Please try again.')
+            flash('Reservation failed. The car may be unavailable for those dates.', 'danger')
     
     today = datetime.now().strftime('%Y-%m-%d')
     return render_template('customer/reserve.html', plate_id=plate_id, today=today)
 
-@app.route('/customer/reservation/cancel/<int:reservation_id>')
+@app.route('/customer/reservation/cancel/<int:reservation_id>', methods=['POST'])
+@customer_required
 def cancel_reservation(reservation_id):
-    if not session.get('customer_ssn'):
-        return redirect(url_for('customer_login'))
+    validate_csrf()
     customer = Customer()
-    if customer.cancel_reservation(reservation_id):
-        flash('Reservation cancelled successfully')
+    if customer.cancel_reservation(reservation_id, session['customer_ssn']):
+        flash('Reservation cancelled successfully', 'success')
     else:
-        flash('Failed to cancel reservation')
+        flash('Reservation could not be cancelled.', 'danger')
     return redirect(url_for('customer_dashboard'))
 
 @app.route('/customer/dashboard')
+@customer_required
 def customer_dashboard():
-    if not session.get('customer_ssn'):
-        return redirect(url_for('customer_login'))
     customer = Customer()
     reservations = customer.get_customer_reservations(session['customer_ssn'])
     return render_template('customer/dashboard.html', reservations=reservations)

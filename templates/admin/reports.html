@@ -86,8 +86,8 @@
                                 {{ res.model }} ({{ res.year }})<br>
                                 <small class="text-muted">ID: {{ res.plate_id }}</small>
                             </td>
-                            <td>{{ res.pickup_date.strftime('%Y-%m-%d') }}</td>
-                            <td>{{ res.return_date.strftime('%Y-%m-%d') }}</td>
+                            <td>{{ res.pickup_date|date_display }}</td>
+                            <td>{{ res.return_date|date_display }}</td>
                             <td>
                                 <span class="badge bg-{{ 'success' if res.status == 'active' else 'secondary' }}">
                                     {{ res.status }}
@@ -245,7 +245,7 @@
                     <tbody>
                         {% for payment in payments %}
                         <tr>
-                            <td>{{ payment.date.strftime('%Y-%m-%d') }}</td>
+                            <td>{{ payment.date|date_display }}</td>
                             <td>{{ payment.number_of_payments }}</td>
                             <td>${{ "%.2f"|format(payment.total_amount) }}</td>
                         </tr>

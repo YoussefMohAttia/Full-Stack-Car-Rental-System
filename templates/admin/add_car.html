@@ -3,6 +3,7 @@
 <div class="container">
     <h2>Add New Car</h2>
     <form method="POST" onsubmit="return validateForm()">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <div class="form-group">
             <label>Plate ID</label>
             <input type="text" name="plate_id" class="form-control" required>
@@ -13,8 +14,8 @@
         </div>
         <div class="form-group">
             <label>Year</label>
-            <input type="number" name="year" class="form-control" min="1900" max="2024" required>
-            <small class="text-muted">Enter a valid year between 1900 and 2024</small>
+            <input type="number" name="year" class="form-control" min="1900" max="{{ current_year }}" required>
+            <small class="text-muted">Enter a valid year between 1900 and {{ current_year }}</small>
         </div>
         <div class="form-group">
             <label>Office ID</label>
