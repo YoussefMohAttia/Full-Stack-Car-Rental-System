@@ -278,8 +278,6 @@ The application is hosted on **PythonAnywhere** and can be accessed through its 
 
 **🌐 [Open the Live CarRental Application](https://youssefmohattia.pythonanywhere.com/)**
 
-Visitors can view the deployed application without setting up Python or MySQL locally. The exact production database configuration and deployment procedure are not documented here; the [Getting Started](#getting-started) section describes the local MySQL setup.
-
 ---
 
 ## Application Routes
